@@ -8,7 +8,9 @@ const points = worldPoints(trips);
 ---
 
 <Layout title="Exile">
-  <div class="page">
+  <div class="page" id="page" data-trips={JSON.stringify(trips)}>
+
+    <!-- Sidebar: always visible -->
     <aside class="sidebar">
       <header>
         <h1>exile</h1>
@@ -16,13 +18,14 @@ const points = worldPoints(trips);
       </header>
 
       <nav>
+        <button class="world-btn" id="world-btn">world map</button>
         <ul>
           {trips.map(trip => (
             <li>
-              <a href={`/trips/${trip.slug}`}>
+              <button class="trip-btn" data-slug={trip.slug}>
                 <span class="trip-title">{trip.title}</span>
                 <span class="trip-date">{trip.date_start.slice(0, 4)}</span>
-              </a>
+              </button>
               {trip.description && (
                 <p class="trip-desc">{trip.description}</p>
               )}
@@ -35,11 +38,229 @@ const points = worldPoints(trips);
       </nav>
     </aside>
 
-    <main class="globe-area">
-      <WorldGlobe points={points} trips={trips} />
-    </main>
+    <!-- Globe area: world globe or trip globe -->
+    <div class="globe-area" id="globe-area">
+      <div id="world-globe-wrapper">
+        <WorldGlobe points={points} trips={trips} />
+      </div>
+      <div id="trip-globe-wrapper">
+        <div id="trip-globe-target"></div>
+      </div>
+    </div>
+
+    <!-- Content panel: pre-rendered trip detail, hidden until trip selected -->
+    <div class="content-panel" id="content-panel">
+      <div class="panel-back">
+        <button class="back-btn" id="back-btn">← all trips</button>
+      </div>
+
+      {trips.map(trip => (
+        <div class="trip-content" data-slug={trip.slug}>
+          <header class="trip-header">
+            <h1>{trip.title}</h1>
+            <p class="dates">
+              {trip.date_start}
+              {trip.date_end && trip.date_end !== trip.date_start && (
+                <> — {trip.date_end}</>
+              )}
+            </p>
+            {trip.description && <p class="description">{trip.description}</p>}
+          </header>
+
+          <div class="photo-roll">
+            {trip.stops.map((stop, i) => (
+              <div class="roll-stop" data-stop={stop.name}>
+                <div class="stop-label">
+                  <span class="stop-index">{String(i + 1).padStart(2, '0')}</span>
+                  <span class="stop-name">{stop.name}</span>
+                  {stop.date && <span class="stop-date">{stop.date}</span>}
+                </div>
+
+                {stop.note && <p class="stop-note">{stop.note}</p>}
+
+                {stop.images && stop.images.length > 0 && (
+                  <div class="roll-frames">
+                    {stop.images.map((img, imgIdx) => (
+                      <figure class="roll-frame">
+                        <a href={`/trips/${trip.slug}/images/${img}`} target="_blank" rel="noopener">
+                          <img
+                            src={`/trips/${trip.slug}/images/${img}`}
+                            alt={stop.name}
+                            loading="lazy"
+                          />
+                        </a>
+                        <figcaption>
+                          <span class="frame-location">{stop.name}</span>
+                          <span class="frame-meta">
+                            {stop.date && <span>{stop.date}</span>}
+                            <span class="frame-num">{String(imgIdx + 1).padStart(2, '0')}/{String(stop.images!.length).padStart(2, '0')}</span>
+                          </span>
+                        </figcaption>
+                      </figure>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
   </div>
 </Layout>
+
+<script>
+  import Globe from 'globe.gl';
+
+  const page = document.getElementById('page')!;
+  const trips: Array<{
+    slug: string;
+    title: string;
+    date_start: string;
+    date_end?: string;
+    description?: string;
+    stops: Array<{ name: string; lat: number; lon: number; date?: string }>;
+  }> = JSON.parse(page.dataset.trips!);
+
+  let tripGlobeInstance: ReturnType<typeof Globe> | null = null;
+  let tripGlobeResizeObserver: ResizeObserver | null = null;
+
+  function initTripGlobe(trip: typeof trips[0]) {
+    destroyTripGlobe();
+
+    const target = document.getElementById('trip-globe-target')!;
+    const stops = trip.stops;
+    const arcs = stops.slice(0, -1).map((stop, i) => ({
+      startLat: stop.lat,
+      startLng: stop.lon,
+      endLat: stops[i + 1].lat,
+      endLng: stops[i + 1].lon,
+    }));
+
+    tripGlobeInstance = Globe()
+      .globeImageUrl('//unpkg.com/three-globe/example/img/earth-dark.jpg')
+      .backgroundImageUrl('//unpkg.com/three-globe/example/img/night-sky.png')
+      .pointsData(stops)
+      .pointLat('lat')
+      .pointLng('lon')
+      .pointLabel('name')
+      .pointColor(() => '#f7934f')
+      .pointAltitude(0.015)
+      .pointRadius(0.5)
+      .arcsData(arcs)
+      .arcStartLat('startLat')
+      .arcStartLng('startLng')
+      .arcEndLat('endLat')
+      .arcEndLng('endLng')
+      .arcColor(() => '#c8a97e')
+      .arcAltitudeAutoScale(0.4)
+      .arcDashLength(0.4)
+      .arcDashGap(0.2)
+      .arcDashAnimateTime(2000)
+      .onPointClick((point: object) => {
+        const p = point as { name: string };
+        const el = document.querySelector(
+          `.trip-content[data-slug="${trip.slug}"] [data-stop="${CSS.escape(p.name)}"]`
+        );
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      })(target);
+
+    tripGlobeInstance.controls().autoRotate = false;
+    tripGlobeInstance.controls().enableDamping = true;
+
+    if (stops.length > 0) {
+      const lats = stops.map(s => s.lat);
+      const lons = stops.map(s => s.lon);
+      const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
+      const centerLon = (Math.min(...lons) + Math.max(...lons)) / 2;
+      tripGlobeInstance.pointOfView({ lat: centerLat, lng: centerLon, altitude: 2 }, 0);
+    }
+
+    tripGlobeResizeObserver = new ResizeObserver(() => {
+      tripGlobeInstance?.width(target.clientWidth).height(target.clientHeight);
+    });
+    tripGlobeResizeObserver.observe(target);
+  }
+
+  function destroyTripGlobe() {
+    tripGlobeResizeObserver?.disconnect();
+    tripGlobeResizeObserver = null;
+    tripGlobeInstance = null;
+    const target = document.getElementById('trip-globe-target')!;
+    target.innerHTML = '';
+  }
+
+  function selectTrip(slug: string) {
+    const trip = trips.find(t => t.slug === slug);
+    if (!trip) return;
+
+    // Show content panel
+    page.classList.add('has-trip');
+
+    // Show matching trip content, hide others
+    document.querySelectorAll<HTMLElement>('.trip-content').forEach(el => {
+      el.style.display = el.dataset.slug === slug ? 'flex' : 'none';
+    });
+
+    // Scroll content panel back to top
+    document.getElementById('content-panel')!.scrollTop = 0;
+
+    // Switch globe
+    document.getElementById('world-globe-wrapper')!.style.display = 'none';
+    document.getElementById('trip-globe-wrapper')!.style.display = 'block';
+    initTripGlobe(trip);
+
+    // Mark active in sidebar
+    document.querySelectorAll('.trip-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelector<HTMLElement>(`.trip-btn[data-slug="${slug}"]`)?.classList.add('active');
+
+    // Update hash
+    location.hash = `/trips/${slug}`;
+  }
+
+  function deselectTrip() {
+    page.classList.remove('has-trip');
+
+    document.querySelectorAll<HTMLElement>('.trip-content').forEach(el => {
+      el.style.display = 'none';
+    });
+
+    document.getElementById('world-globe-wrapper')!.style.display = 'block';
+    document.getElementById('trip-globe-wrapper')!.style.display = 'none';
+    destroyTripGlobe();
+
+    document.querySelectorAll('.trip-btn').forEach(btn => btn.classList.remove('active'));
+
+    location.hash = '';
+  }
+
+  // Sidebar clicks
+  document.querySelectorAll<HTMLElement>('.trip-btn').forEach(btn => {
+    btn.addEventListener('click', () => selectTrip(btn.dataset.slug!));
+  });
+
+  // Back button and world map button
+  document.getElementById('back-btn')!.addEventListener('click', deselectTrip);
+  document.getElementById('world-btn')!.addEventListener('click', deselectTrip);
+
+  // World globe point click
+  document.addEventListener('trip-selected', (e: Event) => {
+    selectTrip((e as CustomEvent<{ slug: string }>).detail.slug);
+  });
+
+  // Hash routing — initial load and back/forward
+  function handleHash() {
+    const match = location.hash.match(/^#\/trips\/(.+)/);
+    if (match) {
+      selectTrip(match[1]);
+    } else {
+      deselectTrip();
+    }
+  }
+
+  window.addEventListener('hashchange', handleHash);
+  handleHash();
+</script>
 
 <style>
   .page {
@@ -48,6 +269,12 @@ const points = worldPoints(trips);
     height: 100vh;
     overflow: hidden;
   }
+
+  .page.has-trip {
+    grid-template-columns: 280px 1fr 440px;
+  }
+
+  /* ---- sidebar ---- */
 
   .sidebar {
     padding: 2rem 1.5rem;
@@ -72,6 +299,27 @@ const points = worldPoints(trips);
     margin-top: 0.25rem;
   }
 
+  .world-btn {
+    all: unset;
+    cursor: pointer;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--border-bright);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 1rem;
+    display: block;
+    transition: color 0.15s;
+  }
+
+  .page.has-trip .world-btn {
+    color: var(--accent);
+  }
+
+  .world-btn:hover {
+    color: var(--text);
+  }
+
   nav ul {
     list-style: none;
     display: flex;
@@ -79,19 +327,22 @@ const points = worldPoints(trips);
     gap: 1.25rem;
   }
 
-  nav a {
+  .trip-btn {
+    all: unset;
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 0.5rem;
+    width: 100%;
+    cursor: pointer;
     color: var(--text);
     font-weight: 500;
     font-size: 0.95rem;
   }
 
-  nav a:hover {
+  .trip-btn:hover,
+  .trip-btn.active {
     color: var(--accent);
-    text-decoration: none;
   }
 
   .trip-date {
@@ -113,15 +364,215 @@ const points = worldPoints(trips);
     color: var(--muted);
   }
 
+  /* ---- globe area ---- */
+
   .globe-area {
     height: 100vh;
     overflow: hidden;
+    background: var(--bg);
+    position: relative;
   }
 
-  @media (max-width: 640px) {
-    .page {
+  #world-globe-wrapper,
+  #trip-globe-wrapper {
+    width: 100%;
+    height: 100%;
+  }
+
+  #trip-globe-wrapper {
+    display: none;
+  }
+
+  #trip-globe-target {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* ---- content panel ---- */
+
+  .content-panel {
+    display: none;
+    flex-direction: column;
+    overflow-y: auto;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .page.has-trip .content-panel {
+    display: flex;
+  }
+
+  .panel-back {
+    padding: 1rem 1.75rem 0;
+    flex-shrink: 0;
+  }
+
+  .back-btn {
+    all: unset;
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  .back-btn:hover {
+    color: var(--text);
+  }
+
+  /* ---- trip content (photo roll) ---- */
+
+  .trip-content {
+    display: none;
+    flex-direction: column;
+    flex: 1;
+  }
+
+  .trip-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding: 1rem 1.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .trip-header h1 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .dates {
+    font-size: 0.72rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    letter-spacing: 0.02em;
+  }
+
+  .description {
+    font-size: 0.875rem;
+    color: var(--muted);
+    line-height: 1.55;
+    margin-top: 0.25rem;
+  }
+
+  .photo-roll {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: 6rem;
+  }
+
+  .roll-stop {
+    display: flex;
+    flex-direction: column;
+    scroll-margin-top: 1rem;
+  }
+
+  .stop-label {
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
+    padding: 1.25rem 1.75rem 0.6rem;
+  }
+
+  .stop-index {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--accent-warm);
+    flex-shrink: 0;
+    letter-spacing: 0.05em;
+  }
+
+  .stop-name {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--text);
+    letter-spacing: -0.01em;
+  }
+
+  .stop-date {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .stop-note {
+    font-size: 0.83rem;
+    color: var(--muted);
+    line-height: 1.6;
+    padding: 0 1.75rem 0.75rem;
+  }
+
+  .roll-frames {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .roll-frame {
+    display: flex;
+    flex-direction: column;
+    border-top: 1px solid var(--border);
+  }
+
+  .roll-frame a {
+    display: block;
+    overflow: hidden;
+    background: #000;
+  }
+
+  .roll-frame img {
+    width: 100%;
+    display: block;
+    object-fit: cover;
+    transition: opacity 0.3s ease;
+    opacity: 0.92;
+  }
+
+  .roll-frame a:hover img {
+    opacity: 1;
+  }
+
+  .roll-frame figcaption {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.45rem 1.75rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .frame-location {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .frame-meta {
+    display: flex;
+    gap: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--muted);
+    letter-spacing: 0.03em;
+  }
+
+  .frame-num {
+    color: var(--border-bright);
+  }
+
+  /* ---- responsive ---- */
+
+  @media (max-width: 800px) {
+    .page,
+    .page.has-trip {
       grid-template-columns: 1fr;
       grid-template-rows: auto 1fr;
+      height: auto;
+      overflow: auto;
     }
 
     .sidebar {
@@ -131,7 +582,13 @@ const points = worldPoints(trips);
     }
 
     .globe-area {
-      height: 60vh;
+      height: 50vh;
+    }
+
+    .content-panel {
+      border-left: none;
+      border-top: 1px solid var(--border);
+      max-height: none;
     }
   }
 </style>

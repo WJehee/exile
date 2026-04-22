@@ -32,12 +32,12 @@ const { points, trips } = Astro.props;
     .pointLat('lat')
     .pointLng('lon')
     .pointLabel('name')
-    .pointColor(() => '#4f8ef7')
+    .pointColor(() => '#c8a97e')
     .pointAltitude(0.01)
     .pointRadius(0.4)
     .onPointClick((point: object) => {
       const p = point as { tripSlug: string };
-      window.location.href = `/trips/${p.tripSlug}`;
+      document.dispatchEvent(new CustomEvent('trip-selected', { detail: { slug: p.tripSlug } }));
     })
     .onPointHover((point: object | null) => {
       const p = point as { name: string; tripTitle: string } | null;
