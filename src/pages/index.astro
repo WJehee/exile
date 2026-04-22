@@ -1,10 +1,8 @@
 ---
 import Layout from '../layouts/Layout.astro';
-import WorldGlobe from '../components/WorldGlobe.astro';
 import { loadAllTrips, worldPoints } from '@lib/trips';
 
 const trips = loadAllTrips();
-const points = worldPoints(trips);
 ---
 
 <Layout title="Exile">
@@ -38,26 +36,22 @@ const points = worldPoints(trips);
       </nav>
     </aside>
 
-    <!-- Globe area: world globe or trip globe -->
-    <div class="globe-area" id="globe-area">
-      <div id="world-globe-wrapper">
-        <WorldGlobe points={points} trips={trips} />
-      </div>
-      <div id="trip-globe-wrapper">
-        <div id="trip-globe-target"></div>
-      </div>
+    <!-- Globe: single persistent instance -->
+    <div class="globe-area">
+      <div id="globe-target"></div>
+      <div id="globe-tooltip" aria-hidden="true"></div>
     </div>
 
-    <!-- Content panel: pre-rendered trip detail, hidden until trip selected -->
+    <!-- Content panel: always visible, empty until a trip is selected -->
     <div class="content-panel" id="content-panel">
-      <div class="panel-back">
+      <div class="panel-back" id="panel-back" style="display:none">
         <button class="back-btn" id="back-btn">← all trips</button>
       </div>
 
       {trips.map(trip => (
-        <div class="trip-content" data-slug={trip.slug}>
+        <div class="trip-content" data-slug={trip.slug} style="display:none">
           <header class="trip-header">
-            <h1>{trip.title}</h1>
+            <h2>{trip.title}</h2>
             <p class="dates">
               {trip.date_start}
               {trip.date_end && trip.date_end !== trip.date_start && (
@@ -116,162 +110,256 @@ const points = worldPoints(trips);
   const trips: Array<{
     slug: string;
     title: string;
-    date_start: string;
-    date_end?: string;
-    description?: string;
     stops: Array<{ name: string; lat: number; lon: number; date?: string }>;
   }> = JSON.parse(page.dataset.trips!);
 
-  let tripGlobeInstance: ReturnType<typeof Globe> | null = null;
-  let tripGlobeResizeObserver: ResizeObserver | null = null;
+  // ---- polygon helpers ----
 
-  function initTripGlobe(trip: typeof trips[0]) {
-    destroyTripGlobe();
+  type Pt = [number, number]; // [lon, lat]
 
-    const target = document.getElementById('trip-globe-target')!;
-    const stops = trip.stops;
-    const arcs = stops.slice(0, -1).map((stop, i) => ({
-      startLat: stop.lat,
-      startLng: stop.lon,
-      endLat: stops[i + 1].lat,
-      endLng: stops[i + 1].lon,
-    }));
+  function cross(O: Pt, A: Pt, B: Pt): number {
+    return (A[0] - O[0]) * (B[1] - O[1]) - (A[1] - O[1]) * (B[0] - O[0]);
+  }
 
-    tripGlobeInstance = Globe()
-      .globeImageUrl('//unpkg.com/three-globe/example/img/earth-dark.jpg')
-      .backgroundImageUrl('//unpkg.com/three-globe/example/img/night-sky.png')
-      .pointsData(stops)
-      .pointLat('lat')
-      .pointLng('lon')
-      .pointLabel('name')
-      .pointColor(() => '#f7934f')
-      .pointAltitude(0.015)
-      .pointRadius(0.5)
-      .arcsData(arcs)
-      .arcStartLat('startLat')
-      .arcStartLng('startLng')
-      .arcEndLat('endLat')
-      .arcEndLng('endLng')
-      .arcColor(() => '#c8a97e')
-      .arcAltitudeAutoScale(0.4)
-      .arcDashLength(0.4)
-      .arcDashGap(0.2)
-      .arcDashAnimateTime(2000)
-      .onPointClick((point: object) => {
-        const p = point as { name: string };
-        const el = document.querySelector(
-          `.trip-content[data-slug="${trip.slug}"] [data-stop="${CSS.escape(p.name)}"]`
-        );
-        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      })(target);
-
-    tripGlobeInstance.controls().autoRotate = false;
-    tripGlobeInstance.controls().enableDamping = true;
-
-    if (stops.length > 0) {
-      const lats = stops.map(s => s.lat);
-      const lons = stops.map(s => s.lon);
-      const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-      const centerLon = (Math.min(...lons) + Math.max(...lons)) / 2;
-      tripGlobeInstance.pointOfView({ lat: centerLat, lng: centerLon, altitude: 2 }, 0);
+  function convexHull(pts: Pt[]): Pt[] {
+    if (pts.length < 2) return pts;
+    const s = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const lower: Pt[] = [];
+    for (const p of s) {
+      while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+      lower.push(p);
     }
+    const upper: Pt[] = [];
+    for (let i = s.length - 1; i >= 0; i--) {
+      const p = s[i];
+      while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+      upper.push(p);
+    }
+    lower.pop(); upper.pop();
+    return [...lower, ...upper];
+  }
 
-    tripGlobeResizeObserver = new ResizeObserver(() => {
-      tripGlobeInstance?.width(target.clientWidth).height(target.clientHeight);
+  function expandHull(hull: Pt[], pad: number): Pt[] {
+    const cx = hull.reduce((s, p) => s + p[0], 0) / hull.length;
+    const cy = hull.reduce((s, p) => s + p[1], 0) / hull.length;
+    return hull.map(p => {
+      const dx = p[0] - cx, dy = p[1] - cy;
+      const len = Math.sqrt(dx * dx + dy * dy) || 0.001;
+      return [cx + (dx / len) * (len + pad), cy + (dy / len) * (len + pad)] as Pt;
     });
-    tripGlobeResizeObserver.observe(target);
   }
 
-  function destroyTripGlobe() {
-    tripGlobeResizeObserver?.disconnect();
-    tripGlobeResizeObserver = null;
-    tripGlobeInstance = null;
-    const target = document.getElementById('trip-globe-target')!;
-    target.innerHTML = '';
+  function tripPolygonCoords(stops: Array<{ lat: number; lon: number }>, pad = 2): Pt[] {
+    const pts: Pt[] = stops.map(s => [s.lon, s.lat]);
+    if (pts.length === 1) {
+      const [lon, lat] = pts[0];
+      // CW winding — d3-geo renders the enclosed small area for CW exterior rings
+      const ring = Array.from({ length: 32 }, (_, i) => {
+        const a = -(i / 32) * Math.PI * 2;
+        return [lon + Math.cos(a) * pad, lat + Math.sin(a) * pad] as Pt;
+      });
+      return [...ring, ring[0]];
+    }
+    const hull = convexHull(pts);
+    const expanded = expandHull(hull.length >= 3 ? hull : pts, pad);
+    // Reverse to CW — globe.gl/d3-geo renders the enclosed small area for CW exterior rings
+    expanded.reverse();
+    return [...expanded, expanded[0]];
   }
+
+  // ---- build data (once) ----
+
+  type GlobePoint = { name: string; lat: number; lon: number; tripSlug: string };
+  type GlobePoly  = { tripSlug: string; tripTitle: string; geometry: object };
+
+  // Beam points: first stop of each trip
+  const beamPoints: GlobePoint[] = trips
+    .filter(t => t.stops.length > 0)
+    .map(t => ({ name: t.stops[0].name, lat: t.stops[0].lat, lon: t.stops[0].lon, tripSlug: t.slug }));
+
+  // Polygons: one per trip covering all stops
+  const polygons: GlobePoly[] = trips.map(t => ({
+    tripSlug: t.slug,
+    tripTitle: t.title,
+    geometry: { type: 'Polygon', coordinates: [tripPolygonCoords(t.stops)] },
+  }));
+
+  // ---- state ----
+
+  let currentSlug: string | null = null;
+
+  function beamColor(p: GlobePoint): string {
+    return (!currentSlug || p.tripSlug !== currentSlug) ? '#ffffff' : '#e8d5b0';
+  }
+
+  function polyFill(p: GlobePoly): string {
+    return p.tripSlug === currentSlug ? 'rgba(200,169,126,0.07)' : 'rgba(255,255,255,0.02)';
+  }
+
+  function polyStroke(p: GlobePoly): string {
+    return p.tripSlug === currentSlug ? 'rgba(200,169,126,0.75)' : 'rgba(255,255,255,0.2)';
+  }
+
+  // ---- globe ----
+
+  const tooltip = document.getElementById('globe-tooltip')!;
+
+  function showTooltip(text: string) { tooltip.textContent = text; tooltip.classList.add('visible'); }
+  function hideTooltip() { tooltip.classList.remove('visible'); }
+
+  const globe = Globe()
+    .globeImageUrl('//unpkg.com/three-globe/example/img/earth-dark.jpg')
+    .backgroundImageUrl('')
+    .backgroundColor('rgba(0,0,0,1)')
+    // beam points
+    .pointsData(beamPoints)
+    .pointLat('lat')
+    .pointLng('lon')
+    .pointLabel('name')
+    .pointColor((p: object) => beamColor(p as GlobePoint))
+    .pointAltitude(0.6)
+    .pointRadius(0.18)
+    // trip polygons
+    .polygonsData(polygons)
+    .polygonGeoJsonGeometry('geometry')
+    .polygonCapColor((p: object) => polyFill(p as GlobePoly))
+    .polygonSideColor(() => 'rgba(0,0,0,0)')
+    .polygonStrokeColor((p: object) => polyStroke(p as GlobePoly))
+    .polygonAltitude(0.001)
+    // arcs (populated on selection)
+    .arcsData([])
+    .arcStartLat('startLat')
+    .arcStartLng('startLng')
+    .arcEndLat('endLat')
+    .arcEndLng('endLng')
+    .arcColor(() => '#c8a97e')
+    .arcAltitudeAutoScale(0.4)
+    .arcDashLength(0.4)
+    .arcDashGap(0.2)
+    .arcDashAnimateTime(2000)
+    // interactions
+    .onPointClick((point: object) => {
+      const p = point as GlobePoint;
+      selectTrip(p.tripSlug);
+    })
+    .onPointHover((point: object | null) => {
+      const p = point as GlobePoint | null;
+      if (p) {
+        const trip = trips.find(t => t.slug === p.tripSlug);
+        showTooltip(trip?.title ?? p.name);
+      } else {
+        hideTooltip();
+      }
+    })
+    .onPolygonClick((poly: object) => {
+      selectTrip((poly as GlobePoly).tripSlug);
+    })
+    .onPolygonHover((poly: object | null) => {
+      const p = poly as GlobePoly | null;
+      if (p) showTooltip(p.tripTitle);
+      else hideTooltip();
+    })(document.getElementById('globe-target')!);
+
+  globe.controls().autoRotate = true;
+  globe.controls().autoRotateSpeed = 0.3;
+  globe.controls().enableDamping = true;
+
+  new ResizeObserver(() => {
+    const el = document.getElementById('globe-target')!;
+    globe.width(el.clientWidth).height(el.clientHeight);
+  }).observe(document.getElementById('globe-target')!);
+
+  // ---- select / deselect ----
 
   function selectTrip(slug: string) {
     const trip = trips.find(t => t.slug === slug);
     if (!trip) return;
 
-    // Show content panel
-    page.classList.add('has-trip');
+    currentSlug = slug;
 
-    // Show matching trip content, hide others
+    // Update globe
+    globe.pointColor((p: object) => beamColor(p as GlobePoint));
+    globe.polygonCapColor((p: object) => polyFill(p as GlobePoly));
+    globe.polygonStrokeColor((p: object) => polyStroke(p as GlobePoly));
+    const arcs = trip.stops.slice(0, -1).map((s, i) => ({
+      startLat: s.lat, startLng: s.lon,
+      endLat: trip.stops[i + 1].lat, endLng: trip.stops[i + 1].lon,
+    }));
+    globe.arcsData(arcs);
+    globe.controls().autoRotate = false;
+
+    if (trip.stops.length > 0) {
+      const lats = trip.stops.map(s => s.lat);
+      const lons = trip.stops.map(s => s.lon);
+      globe.pointOfView({
+        lat: (Math.min(...lats) + Math.max(...lats)) / 2,
+        lng: (Math.min(...lons) + Math.max(...lons)) / 2,
+        altitude: 2,
+      }, 1000);
+    }
+
+    // Show content
     document.querySelectorAll<HTMLElement>('.trip-content').forEach(el => {
       el.style.display = el.dataset.slug === slug ? 'flex' : 'none';
     });
-
-    // Scroll content panel back to top
+    document.getElementById('panel-back')!.style.display = 'block';
     document.getElementById('content-panel')!.scrollTop = 0;
 
-    // Switch globe
-    document.getElementById('world-globe-wrapper')!.style.display = 'none';
-    document.getElementById('trip-globe-wrapper')!.style.display = 'block';
-    initTripGlobe(trip);
-
-    // Mark active in sidebar
-    document.querySelectorAll('.trip-btn').forEach(btn => btn.classList.remove('active'));
+    // Sidebar active state
+    document.querySelectorAll('.trip-btn').forEach(b => b.classList.remove('active'));
     document.querySelector<HTMLElement>(`.trip-btn[data-slug="${slug}"]`)?.classList.add('active');
 
-    // Update hash
-    location.hash = `/trips/${slug}`;
+    history.pushState(null, '', `#/trips/${slug}`);
   }
 
   function deselectTrip() {
-    page.classList.remove('has-trip');
+    currentSlug = null;
 
+    // Reset globe
+    globe.pointColor((p: object) => beamColor(p as GlobePoint));
+    globe.polygonCapColor((p: object) => polyFill(p as GlobePoly));
+    globe.polygonStrokeColor((p: object) => polyStroke(p as GlobePoly));
+    globe.arcsData([]);
+    globe.controls().autoRotate = true;
+
+    // Hide content
     document.querySelectorAll<HTMLElement>('.trip-content').forEach(el => {
       el.style.display = 'none';
     });
+    document.getElementById('panel-back')!.style.display = 'none';
 
-    document.getElementById('world-globe-wrapper')!.style.display = 'block';
-    document.getElementById('trip-globe-wrapper')!.style.display = 'none';
-    destroyTripGlobe();
+    // Sidebar
+    document.querySelectorAll('.trip-btn').forEach(b => b.classList.remove('active'));
 
-    document.querySelectorAll('.trip-btn').forEach(btn => btn.classList.remove('active'));
-
-    location.hash = '';
+    history.pushState(null, '', location.pathname);
   }
 
-  // Sidebar clicks
+  // ---- event listeners ----
+
   document.querySelectorAll<HTMLElement>('.trip-btn').forEach(btn => {
     btn.addEventListener('click', () => selectTrip(btn.dataset.slug!));
   });
 
-  // Back button and world map button
   document.getElementById('back-btn')!.addEventListener('click', deselectTrip);
   document.getElementById('world-btn')!.addEventListener('click', deselectTrip);
 
-  // World globe point click
-  document.addEventListener('trip-selected', (e: Event) => {
-    selectTrip((e as CustomEvent<{ slug: string }>).detail.slug);
+  window.addEventListener('popstate', () => {
+    const match = location.hash.match(/^#\/trips\/(.+)/);
+    if (match) selectTrip(match[1]);
+    else deselectTrip();
   });
 
-  // Hash routing — initial load and back/forward
-  function handleHash() {
-    const match = location.hash.match(/^#\/trips\/(.+)/);
-    if (match) {
-      selectTrip(match[1]);
-    } else {
-      deselectTrip();
-    }
-  }
-
-  window.addEventListener('hashchange', handleHash);
-  handleHash();
+  // Initial load
+  const initial = location.hash.match(/^#\/trips\/(.+)/);
+  if (initial) selectTrip(initial[1]);
 </script>
 
 <style>
   .page {
     display: grid;
-    grid-template-columns: 280px 1fr;
+    grid-template-columns: 280px 1fr 440px;
     height: 100vh;
     overflow: hidden;
-  }
-
-  .page.has-trip {
-    grid-template-columns: 280px 1fr 440px;
   }
 
   /* ---- sidebar ---- */
@@ -310,10 +398,6 @@ const points = worldPoints(trips);
     margin-bottom: 1rem;
     display: block;
     transition: color 0.15s;
-  }
-
-  .page.has-trip .world-btn {
-    color: var(--accent);
   }
 
   .world-btn:hover {
@@ -364,7 +448,7 @@ const points = worldPoints(trips);
     color: var(--muted);
   }
 
-  /* ---- globe area ---- */
+  /* ---- globe ---- */
 
   .globe-area {
     height: 100vh;
@@ -373,33 +457,41 @@ const points = worldPoints(trips);
     position: relative;
   }
 
-  #world-globe-wrapper,
-  #trip-globe-wrapper {
+  #globe-target {
     width: 100%;
     height: 100%;
   }
 
-  #trip-globe-wrapper {
-    display: none;
+  #globe-tooltip {
+    position: absolute;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(10, 9, 8, 0.85);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    color: var(--text);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+    backdrop-filter: blur(8px);
   }
 
-  #trip-globe-target {
-    width: 100%;
-    height: 100%;
+  #globe-tooltip.visible {
+    opacity: 1;
   }
 
   /* ---- content panel ---- */
 
   .content-panel {
-    display: none;
+    display: flex;
     flex-direction: column;
     overflow-y: auto;
     border-left: 1px solid var(--border);
     background: var(--surface);
-  }
-
-  .page.has-trip .content-panel {
-    display: flex;
   }
 
   .panel-back {
@@ -419,10 +511,9 @@ const points = worldPoints(trips);
     color: var(--text);
   }
 
-  /* ---- trip content (photo roll) ---- */
+  /* ---- trip content / photo roll ---- */
 
   .trip-content {
-    display: none;
     flex-direction: column;
     flex: 1;
   }
@@ -435,11 +526,12 @@ const points = worldPoints(trips);
     border-bottom: 1px solid var(--border);
   }
 
-  .trip-header h1 {
+  h2 {
     font-size: 1.5rem;
     font-weight: 600;
     letter-spacing: -0.02em;
     line-height: 1.2;
+    color: var(--text);
   }
 
   .dates {
@@ -566,29 +658,17 @@ const points = worldPoints(trips);
 
   /* ---- responsive ---- */
 
-  @media (max-width: 800px) {
-    .page,
-    .page.has-trip {
-      grid-template-columns: 1fr;
-      grid-template-rows: auto 1fr;
-      height: auto;
-      overflow: auto;
-    }
-
-    .sidebar {
-      border-right: none;
-      border-bottom: 1px solid var(--border);
-      max-height: 40vh;
-    }
-
-    .globe-area {
-      height: 50vh;
+  @media (max-width: 900px) {
+    .page {
+      grid-template-columns: 280px 1fr;
+      grid-template-rows: 1fr auto;
     }
 
     .content-panel {
+      grid-column: 1 / -1;
       border-left: none;
       border-top: 1px solid var(--border);
-      max-height: none;
+      max-height: 50vh;
     }
   }
 </style>
