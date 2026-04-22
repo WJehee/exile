@@ -6,34 +6,39 @@ stops:
   - name: "Marrakech"
     lat: 31.6295
     lon: -7.9811
-    date: "2022-10-04"
+    date_start: "2022-10-04"
+    date_end: "2022-10-06"
     note: "Arrived into the medina at dusk. The Djemaa el-Fna was already alive with smoke and drums."
     images: []
 
   - name: "Aït Benhaddou"
     lat: 31.0472
     lon: -7.1286
-    date: "2022-10-07"
+    date_start: "2022-10-07"
+    date_end: "2022-10-08"
     note: "Ksar rising out of the desert like it grew there. Crossed the river on stepping stones."
     images: []
 
   - name: "Merzouga"
     lat: 31.0996
     lon: -3.9785
-    date: "2022-10-09"
+    date_start: "2022-10-09"
+    date_end: "2022-10-12"
     note: "Slept in a desert camp. Woke before sunrise to watch the dunes change colour."
     images: []
 
   - name: "Fes"
     lat: 34.0372
     lon: -5.0003
-    date: "2022-10-13"
+    date_start: "2022-10-13"
+    date_end: "2022-10-15"
     note: "Lost in the medina for most of the day. The tanneries smell exactly as bad as everyone warns."
     images: []
 
   - name: "Chefchaouen"
     lat: 35.1688
     lon: -5.2685
-    date: "2022-10-16"
+    date_start: "2022-10-16"
+    date_end: "2022-10-18"
     note: "Everything is blue. Sat on a rooftop until the call to prayer echoed through the whole hillside."
     images: []

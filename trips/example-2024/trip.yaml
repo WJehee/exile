@@ -6,7 +6,8 @@ stops:
   - name: "Reykjavik"
     lat: 64.1355
     lon: -21.8954
-    date: "2024-07-01"
+    date_start: "2024-07-01"
+    date_end: "2024-07-02"
     note: "Landed in the evening. Walked the old harbour, ate a hot dog at Bæjarins Beztu."
     images:
       - "iceland.jpg"
@@ -14,27 +15,31 @@ stops:
   - name: "Seljalandsfoss"
     lat: 63.6156
     lon: -19.9886
-    date: "2024-07-03"
+    date_start: "2024-07-03"
+    date_end: "2024-07-03"
     note: "You can walk behind the waterfall. Wet but worth it."
     images: []
 
   - name: "Jokulsarlon"
     lat: 64.0784
     lon: -16.2306
-    date: "2024-07-06"
+    date_start: "2024-07-06"
+    date_end: "2024-07-07"
     note: "Glacier lagoon. Blue icebergs floating out to sea."
     images: []
 
   - name: "Myvatn"
     lat: 65.5981
     lon: -16.9814
-    date: "2024-07-09"
+    date_start: "2024-07-09"
+    date_end: "2024-07-11"
     note: "Geothermal pools and lava fields. Midges everywhere."
     images: []
 
   - name: "Akureyri"
     lat: 65.6835
     lon: -18.0878
-    date: "2024-07-11"
+    date_start: "2024-07-12"
+    date_end: "2024-07-14"
     note: "The capital of the north. Good coffee."
     images: []

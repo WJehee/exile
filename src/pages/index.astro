@@ -67,7 +67,11 @@ const trips = loadAllTrips();
                 <div class="stop-label">
                   <span class="stop-index">{String(i + 1).padStart(2, '0')}</span>
                   <span class="stop-name">{stop.name}</span>
-                  {stop.date && <span class="stop-date">{stop.date}</span>}
+                  {stop.date_start && (
+                    <span class="stop-date">
+                      {stop.date_start}{stop.date_end && stop.date_end !== stop.date_start ? ` — ${stop.date_end}` : ''}
+                    </span>
+                  )}
                 </div>
 
                 {stop.note && <p class="stop-note">{stop.note}</p>}
@@ -86,7 +90,7 @@ const trips = loadAllTrips();
                         <figcaption>
                           <span class="frame-location">{stop.name}</span>
                           <span class="frame-meta">
-                            {stop.date && <span>{stop.date}</span>}
+                            {stop.date_start && <span>{stop.date_start}{stop.date_end && stop.date_end !== stop.date_start ? ` — ${stop.date_end}` : ''}</span>}
                             <span class="frame-num">{String(imgIdx + 1).padStart(2, '0')}/{String(stop.images!.length).padStart(2, '0')}</span>
                           </span>
                         </figcaption>
@@ -169,13 +173,72 @@ const trips = loadAllTrips();
 
   // ---- build data (once) ----
 
-  type GlobePoint = { name: string; lat: number; lon: number; tripSlug: string };
+  type GlobePoint = { name: string; lat: number; lon: number; tripSlug: string; days: number };
   type GlobePoly  = { tripSlug: string; tripTitle: string; geometry: object };
 
-  // Beam points: first stop of each trip
-  const beamPoints: GlobePoint[] = trips
-    .filter(t => t.stops.length > 0)
-    .map(t => ({ name: t.stops[0].name, lat: t.stops[0].lat, lon: t.stops[0].lon, tripSlug: t.slug }));
+  function stopDays(stop: { date_start?: string; date_end?: string }): number {
+    if (!stop.date_start) return 1;
+    const start = new Date(stop.date_start).getTime();
+    const end   = stop.date_end ? new Date(stop.date_end).getTime() : start;
+    return Math.max(1, Math.round((end - start) / 86400000) + 1);
+  }
+
+  // All stops across all trips (deduplicated by lat/lon)
+  const stopPoints: GlobePoint[] = [];
+  const seenKeys = new Set<string>();
+  for (const t of trips) {
+    for (const s of t.stops) {
+      const key = `${s.lat},${s.lon}`;
+      if (!seenKeys.has(key)) {
+        stopPoints.push({ name: s.name, lat: s.lat, lon: s.lon, tripSlug: t.slug, days: stopDays(s) });
+        seenKeys.add(key);
+      }
+    }
+  }
+
+  const maxDays = Math.max(1, ...stopPoints.map(p => p.days));
+
+  // ---- point size animation ----
+
+  let animFromSlug: string | null = null;
+  let animToSlug:   string | null = null;
+  let animProgress  = 1;
+  let animFrame:    number | null = null;
+
+  function easeInOut(t: number): number {
+    return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  }
+
+  function pointScale(p: GlobePoint): number {
+    const fromScale = (animFromSlug !== null && p.tripSlug === animFromSlug) ? 1 : 0.5;
+    const toScale   = (animToSlug   !== null && p.tripSlug === animToSlug)   ? 1 : 0.5;
+    return fromScale + (toScale - fromScale) * easeInOut(animProgress);
+  }
+
+  function stopAltitude(p: GlobePoint): number {
+    return (0.03 + (p.days / maxDays) * 0.35) * pointScale(p);
+  }
+
+  function stopRadius(p: GlobePoint): number {
+    return 0.2 * pointScale(p);
+  }
+
+  function animatePoints(toSlug: string | null) {
+    animFromSlug = currentSlug;
+    animToSlug   = toSlug;
+    animProgress = 0;
+    if (animFrame) cancelAnimationFrame(animFrame);
+    const start = performance.now();
+    const DURATION = 450;
+    function tick() {
+      animProgress = Math.min(1, (performance.now() - start) / DURATION);
+      globe.pointAltitude((p: object) => stopAltitude(p as GlobePoint));
+      globe.pointRadius((p: object) => stopRadius(p as GlobePoint));
+      if (animProgress < 1) animFrame = requestAnimationFrame(tick);
+      else animFrame = null;
+    }
+    tick();
+  }
 
   // Polygons: one per trip covering all stops
   const polygons: GlobePoly[] = trips.map(t => ({
@@ -188,7 +251,7 @@ const trips = loadAllTrips();
 
   let currentSlug: string | null = null;
 
-  function beamColor(p: GlobePoint): string {
+  function pointColor(p: GlobePoint): string {
     return (!currentSlug || p.tripSlug !== currentSlug) ? '#ffffff' : '#e8d5b0';
   }
 
@@ -211,14 +274,13 @@ const trips = loadAllTrips();
     .globeImageUrl('//unpkg.com/three-globe/example/img/earth-dark.jpg')
     .backgroundImageUrl('')
     .backgroundColor('rgba(0,0,0,1)')
-    // beam points
-    .pointsData(beamPoints)
+    .pointsData(stopPoints)
     .pointLat('lat')
     .pointLng('lon')
     .pointLabel('name')
-    .pointColor((p: object) => beamColor(p as GlobePoint))
-    .pointAltitude(0.6)
-    .pointRadius(0.18)
+    .pointColor((p: object) => pointColor(p as GlobePoint))
+    .pointAltitude((p: object) => stopAltitude(p as GlobePoint))
+    .pointRadius((p: object) => stopRadius(p as GlobePoint))
     // trip polygons
     .polygonsData(polygons)
     .polygonGeoJsonGeometry('geometry')
@@ -278,9 +340,10 @@ const trips = loadAllTrips();
     currentSlug = slug;
 
     // Update globe
-    globe.pointColor((p: object) => beamColor(p as GlobePoint));
+    globe.pointColor((p: object) => pointColor(p as GlobePoint));
     globe.polygonCapColor((p: object) => polyFill(p as GlobePoly));
     globe.polygonStrokeColor((p: object) => polyStroke(p as GlobePoly));
+    animatePoints(currentSlug);
     const arcs = trip.stops.slice(0, -1).map((s, i) => ({
       startLat: s.lat, startLng: s.lon,
       endLat: trip.stops[i + 1].lat, endLng: trip.stops[i + 1].lon,
@@ -316,9 +379,10 @@ const trips = loadAllTrips();
     currentSlug = null;
 
     // Reset globe
-    globe.pointColor((p: object) => beamColor(p as GlobePoint));
+    globe.pointColor((p: object) => pointColor(p as GlobePoint));
     globe.polygonCapColor((p: object) => polyFill(p as GlobePoly));
     globe.polygonStrokeColor((p: object) => polyStroke(p as GlobePoly));
+    animatePoints(currentSlug);
     globe.arcsData([]);
     globe.controls().autoRotate = true;
 
