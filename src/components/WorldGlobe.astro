@@ -1,0 +1,97 @@
+---
+import type { WorldPoint, Trip } from '@lib/trips';
+
+interface Props {
+  points: WorldPoint[];
+  trips: Trip[];
+}
+
+const { points, trips } = Astro.props;
+---
+
+<div id="world-globe-root" data-points={JSON.stringify(points)} data-trips={JSON.stringify(trips)}>
+  <div id="world-globe"></div>
+  <div id="globe-tooltip" aria-hidden="true"></div>
+</div>
+
+<script>
+  import Globe from 'globe.gl';
+
+  const root = document.getElementById('world-globe-root')!;
+  const points: Array<{ name: string; lat: number; lon: number; tripSlug: string; tripTitle: string }> =
+    JSON.parse(root.dataset.points!);
+  const trips: Array<{ slug: string; title: string; date_start: string }> =
+    JSON.parse(root.dataset.trips!);
+
+  const tooltip = document.getElementById('globe-tooltip')!;
+
+  const globe = Globe()
+    .globeImageUrl('//unpkg.com/three-globe/example/img/earth-dark.jpg')
+    .backgroundImageUrl('//unpkg.com/three-globe/example/img/night-sky.png')
+    .pointsData(points)
+    .pointLat('lat')
+    .pointLng('lon')
+    .pointLabel('name')
+    .pointColor(() => '#4f8ef7')
+    .pointAltitude(0.01)
+    .pointRadius(0.4)
+    .onPointClick((point: object) => {
+      const p = point as { tripSlug: string };
+      window.location.href = `/trips/${p.tripSlug}`;
+    })
+    .onPointHover((point: object | null) => {
+      const p = point as { name: string; tripTitle: string } | null;
+      if (p) {
+        tooltip.textContent = `${p.name} — ${p.tripTitle}`;
+        tooltip.classList.add('visible');
+      } else {
+        tooltip.classList.remove('visible');
+      }
+    })(document.getElementById('world-globe')!);
+
+  globe.controls().autoRotate = true;
+  globe.controls().autoRotateSpeed = 0.3;
+  globe.controls().enableDamping = true;
+
+  // Resize handling
+  const resizeObserver = new ResizeObserver(() => {
+    const el = document.getElementById('world-globe')!;
+    globe.width(el.clientWidth).height(el.clientHeight);
+  });
+  resizeObserver.observe(document.getElementById('world-globe')!);
+</script>
+
+<style>
+  #world-globe-root {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+
+  #world-globe {
+    width: 100%;
+    height: 100%;
+  }
+
+  #globe-tooltip {
+    position: absolute;
+    top: 1rem;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(8, 9, 13, 0.85);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
+    color: var(--text);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+    white-space: nowrap;
+    backdrop-filter: blur(8px);
+  }
+
+  #globe-tooltip.visible {
+    opacity: 1;
+  }
+</style>

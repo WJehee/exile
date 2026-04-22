@@ -1,0 +1,21 @@
+{
+  "name": "exile",
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "import-trip": "node scripts/import-trip.mjs"
+  },
+  "dependencies": {
+    "astro": "^4.16.0",
+    "globe.gl": "^2.31.0",
+    "js-yaml": "^4.1.0",
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "exifr": "^7.1.3"
+  }
+}

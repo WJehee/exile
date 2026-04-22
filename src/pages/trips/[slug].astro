@@ -1,0 +1,221 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import TripGlobe from '../../components/TripGlobe.astro';
+import { loadAllTrips, loadTrip } from '@lib/trips';
+
+export async function getStaticPaths() {
+  const trips = loadAllTrips();
+  return trips.map(trip => ({
+    params: { slug: trip.slug },
+  }));
+}
+
+const { slug } = Astro.params;
+const trip = loadTrip(slug!);
+---
+
+<Layout title={trip.title} description={trip.description}>
+  <div class="page">
+    <div class="globe-panel">
+      <TripGlobe trip={trip} />
+    </div>
+
+    <div class="content-panel">
+      <header class="trip-header">
+        <a href="/" class="back">← all trips</a>
+        <h1>{trip.title}</h1>
+        <p class="dates">
+          {trip.date_start}
+          {trip.date_end && trip.date_end !== trip.date_start && (
+            <> — {trip.date_end}</>
+          )}
+        </p>
+        {trip.description && <p class="description">{trip.description}</p>}
+      </header>
+
+      <ol class="stops">
+        {trip.stops.map((stop, i) => (
+          <li class="stop" data-stop={stop.name}>
+            <div class="stop-meta">
+              <span class="stop-index">{String(i + 1).padStart(2, '0')}</span>
+              <div>
+                <h2>{stop.name}</h2>
+                {stop.date && <time class="stop-date">{stop.date}</time>}
+              </div>
+            </div>
+
+            {stop.note && <p class="stop-note">{stop.note}</p>}
+
+            {stop.images && stop.images.length > 0 && (
+              <div class="image-grid" style={`--cols: ${Math.min(stop.images.length, 3)}`}>
+                {stop.images.map(img => (
+                  <a href={`/trips/${slug}/images/${img}`} target="_blank" rel="noopener">
+                    <img
+                      src={`/trips/${slug}/images/${img}`}
+                      alt={`${stop.name} — ${img}`}
+                      loading="lazy"
+                    />
+                  </a>
+                ))}
+              </div>
+            )}
+          </li>
+        ))}
+      </ol>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  .page {
+    display: grid;
+    grid-template-columns: 1fr 420px;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .globe-panel {
+    height: 100vh;
+    overflow: hidden;
+    position: sticky;
+    top: 0;
+  }
+
+  .content-panel {
+    overflow-y: auto;
+    padding: 2rem 1.75rem;
+    border-left: 1px solid var(--border);
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    gap: 2.5rem;
+  }
+
+  .trip-header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .back {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .back:hover {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  h1 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+  }
+
+  .dates {
+    font-size: 0.8rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  .description {
+    font-size: 0.9rem;
+    color: var(--muted);
+    line-height: 1.5;
+    margin-top: 0.25rem;
+  }
+
+  .stops {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 2.5rem;
+    padding-bottom: 4rem;
+  }
+
+  .stop {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    scroll-margin-top: 1rem;
+  }
+
+  .stop-meta {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+
+  .stop-index {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--accent);
+    padding-top: 0.35rem;
+    flex-shrink: 0;
+  }
+
+  h2 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .stop-date {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  .stop-note {
+    font-size: 0.9rem;
+    color: var(--muted);
+    line-height: 1.6;
+    padding-left: 2.5rem;
+  }
+
+  .image-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--cols), 1fr);
+    gap: 4px;
+    padding-left: 2.5rem;
+  }
+
+  .image-grid a {
+    display: block;
+    overflow: hidden;
+    border-radius: 4px;
+    aspect-ratio: 4/3;
+  }
+
+  .image-grid img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.2s;
+  }
+
+  .image-grid a:hover img {
+    transform: scale(1.03);
+  }
+
+  @media (max-width: 800px) {
+    .page {
+      grid-template-columns: 1fr;
+      grid-template-rows: 40vh 1fr;
+      overflow: auto;
+    }
+
+    .globe-panel {
+      height: 40vh;
+      position: static;
+    }
+
+    .content-panel {
+      border-left: none;
+      border-top: 1px solid var(--border);
+    }
+  }
+</style>

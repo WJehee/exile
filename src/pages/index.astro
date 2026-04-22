@@ -1,0 +1,137 @@
+---
+import Layout from '../layouts/Layout.astro';
+import WorldGlobe from '../components/WorldGlobe.astro';
+import { loadAllTrips, worldPoints } from '@lib/trips';
+
+const trips = loadAllTrips();
+const points = worldPoints(trips);
+---
+
+<Layout title="Exile">
+  <div class="page">
+    <aside class="sidebar">
+      <header>
+        <h1>exile</h1>
+        <p class="tagline">places I've been</p>
+      </header>
+
+      <nav>
+        <ul>
+          {trips.map(trip => (
+            <li>
+              <a href={`/trips/${trip.slug}`}>
+                <span class="trip-title">{trip.title}</span>
+                <span class="trip-date">{trip.date_start.slice(0, 4)}</span>
+              </a>
+              {trip.description && (
+                <p class="trip-desc">{trip.description}</p>
+              )}
+            </li>
+          ))}
+          {trips.length === 0 && (
+            <li class="empty">No trips yet. Add one in <code>trips/</code>.</li>
+          )}
+        </ul>
+      </nav>
+    </aside>
+
+    <main class="globe-area">
+      <WorldGlobe points={points} trips={trips} />
+    </main>
+  </div>
+</Layout>
+
+<style>
+  .page {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  .sidebar {
+    padding: 2rem 1.5rem;
+    border-right: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2rem;
+    background: var(--surface);
+  }
+
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+
+  .tagline {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 0.25rem;
+  }
+
+  nav ul {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  nav a {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.5rem;
+    color: var(--text);
+    font-weight: 500;
+    font-size: 0.95rem;
+  }
+
+  nav a:hover {
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .trip-date {
+    font-size: 0.75rem;
+    color: var(--muted);
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+  }
+
+  .trip-desc {
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-top: 0.25rem;
+    line-height: 1.4;
+  }
+
+  .empty {
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  .globe-area {
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  @media (max-width: 640px) {
+    .page {
+      grid-template-columns: 1fr;
+      grid-template-rows: auto 1fr;
+    }
+
+    .sidebar {
+      border-right: none;
+      border-bottom: 1px solid var(--border);
+      max-height: 40vh;
+    }
+
+    .globe-area {
+      height: 60vh;
+    }
+  }
+</style>
