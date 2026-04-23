@@ -9,10 +9,12 @@
     "import-trip": "node scripts/import-trip.mjs"
   },
   "dependencies": {
+    "@types/topojson-client": "^3.1.5",
     "astro": "^4.16.0",
     "globe.gl": "^2.31.0",
     "js-yaml": "^4.1.0",
-    "three": "^0.169.0"
+    "three": "^0.169.0",
+    "topojson-client": "^3.1.0"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",

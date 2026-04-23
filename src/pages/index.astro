@@ -110,6 +110,7 @@ const trips = loadAllTrips();
 <script>
   import Globe from 'globe.gl';
   import * as THREE from 'three';
+  import * as topojson from 'topojson-client';
 
   const page = document.getElementById('page')!;
   const trips: Array<{
@@ -329,9 +330,60 @@ const trips = loadAllTrips();
 
   // ---- fog of war ----
 
-  (function createFogSphere() {
-    // Canvas mask: white = fog area, transparent = visited trip area
-    const MW = 1024, MH = 512;
+  // ISO 3166-1 numeric codes for countries that should be fog-free
+  // Add entries here to clear fog over additional countries
+  const FOGLESS_COUNTRY_IDS = new Set([
+    528, // Netherlands
+    56,  // Belgium
+    840, // United States
+  ]);
+
+  async function fetchCountryRings(): Promise<[number, number][][]> {
+    try {
+      const res = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-50m.json');
+      const topology = await res.json() as topojson.Topology;
+      const collection = topojson.feature(topology, topology.objects.countries as topojson.GeometryCollection);
+      const rings: [number, number][][] = [];
+      for (const feature of (collection as GeoJSON.FeatureCollection).features) {
+        if (!FOGLESS_COUNTRY_IDS.has(Number(feature.id))) continue;
+        const geom = feature.geometry;
+        if (!geom) continue;
+        if (geom.type === 'Polygon') {
+          rings.push(geom.coordinates[0] as [number, number][]);
+        } else if (geom.type === 'MultiPolygon') {
+          for (const poly of geom.coordinates) rings.push(poly[0] as [number, number][]);
+        }
+      }
+      return rings;
+    } catch (e) {
+      console.error('Failed to fetch country borders:', e);
+      return [];
+    }
+  }
+
+  function drawRingsOnCanvas(mCtx: CanvasRenderingContext2D, rings: [number, number][][], MW: number, MH: number, blur: number) {
+    for (const ring of rings) {
+      mCtx.save();
+      mCtx.shadowBlur = blur;
+      mCtx.shadowColor = 'rgba(0,0,0,1)';
+      mCtx.beginPath();
+      for (let i = 0; i < ring.length; i++) {
+        const x = (ring[i][0] + 180) / 360 * MW;
+        const y = (90 - ring[i][1]) / 180 * MH;
+        if (i === 0) mCtx.moveTo(x, y); else mCtx.lineTo(x, y);
+      }
+      mCtx.closePath();
+      mCtx.fill();
+      mCtx.restore();
+    }
+  }
+
+  (async function createFogSphere() {
+    // Fetch country border rings before building the canvas mask
+    const countryRings = await fetchCountryRings();
+
+    // Canvas mask: white = fog area, transparent = visited/cleared area
+    const MW = 4096, MH = 2048;
     const maskCanvas = document.createElement('canvas');
     maskCanvas.width = MW; maskCanvas.height = MH;
     const mCtx = maskCanvas.getContext('2d')!;
@@ -341,7 +393,7 @@ const trips = loadAllTrips();
     for (const t of trips) {
       const coords = tripPolygonCoords(t.stops, 2);
       mCtx.save();
-      mCtx.shadowBlur = 160;
+      mCtx.shadowBlur = 640;
       mCtx.shadowColor = 'rgba(0,0,0,1)';
       mCtx.beginPath();
       for (let i = 0; i < coords.length; i++) {
@@ -353,6 +405,7 @@ const trips = loadAllTrips();
       mCtx.fill();
       mCtx.restore();
     }
+    drawRingsOnCanvas(mCtx, countryRings, MW, MH, 640);
     mCtx.globalCompositeOperation = 'source-over';
 
     const maskTex = new THREE.CanvasTexture(maskCanvas);
@@ -409,9 +462,9 @@ const trips = loadAllTrips();
           float mask = texture2D(tripMask, vUv).a;
           vec3 p = normalize(vPos) * 6.0;
           float n = cloud(p, time);
-          // Perturb the clearing boundary with the cloud noise so edges follow cloud shapes
+          // Perturb the clearing boundary with cloud noise; scale by mask so cleared areas stay clear
           float perturb = (n - 0.5) * 0.7;
-          float cloudMask = smoothstep(0.0, 1.0, clamp(mask + perturb, 0.0, 1.0));
+          float cloudMask = smoothstep(0.0, 1.0, clamp(mask + perturb * smoothstep(0.0, 0.7, mask), 0.0, 1.0));
           float density = 0.55 + 0.45 * smoothstep(0.30, 0.65, n);
           gl_FragColor = vec4(0.78, 0.82, 0.88, density * cloudMask);
         }
@@ -422,7 +475,7 @@ const trips = loadAllTrips();
 
     const r = globe.getGlobeRadius() ?? 100;
     const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(r * 1.002, 128, 64),
+      new THREE.SphereGeometry(r * 1.002, 256, 128),
       material,
     );
 
